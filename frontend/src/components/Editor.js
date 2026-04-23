@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback } from "react";
+import React, { useEffect, useRef } from "react";
 import { language, cmtheme } from "../../src/atoms";
 import { useRecoilValue } from "recoil";
 import ACTIONS from "../actions/Actions";
@@ -107,43 +107,69 @@ import "codemirror/addon/search/jump-to-line.js";
 import "codemirror/addon/dialog/dialog.js";
 import "codemirror/addon/dialog/dialog.css";
 
-const Editor = ({ socketRef, roomId, onCodeChange }) => {
+const Editor = ({ socket, socketRef, roomId, onCodeChange }) => {
   const editorRef = useRef(null);
+  const onCodeChangeRef = useRef(onCodeChange);
   const lang = useRecoilValue(language);
   const editorTheme = useRecoilValue(cmtheme);
 
-  const init = useCallback(() => {
-    editorRef.current = Codemirror.fromTextArea(
-      document.getElementById("realtimeEditor"),
-      {
-        mode: { name: lang },
-        theme: editorTheme,
-        autoCloseTags: true,
-        autoCloseBrackets: true,
-        lineNumbers: true,
-        allowDropFileTypes: true,
-        search: true,
-        lineWrapping: true,
-      }
-    );
+  useEffect(() => {
+    onCodeChangeRef.current = onCodeChange;
+  }, [onCodeChange]);
 
-    editorRef.current.on("change", (instance, changes) => {
+  useEffect(() => {
+    if (editorRef.current) {
+      return undefined;
+    }
+
+    const textarea = document.getElementById("realtimeEditor");
+    if (!textarea) {
+      return undefined;
+    }
+
+    const editor = Codemirror.fromTextArea(textarea, {
+      mode: { name: lang },
+      theme: editorTheme,
+      autoCloseTags: true,
+      autoCloseBrackets: true,
+      lineNumbers: true,
+      allowDropFileTypes: true,
+      search: true,
+      lineWrapping: true,
+    });
+
+    const handleChange = (instance, changes) => {
       const { origin } = changes;
       const code = instance.getValue();
-      console.log("main:editor: ", code);
-      onCodeChange(code);
-      if (origin !== "setValue" && socketRef.current) {
-        socketRef.current.emit(ACTIONS.CODE_CHANGE, {
+
+      if (onCodeChangeRef.current) {
+        onCodeChangeRef.current(code);
+      }
+
+      const activeSocket = socket || socketRef.current;
+      if (origin !== "setValue" && activeSocket) {
+        activeSocket.emit(ACTIONS.CODE_CHANGE, {
           roomId,
           code,
         });
       }
-    });
-  }, [lang, editorTheme, roomId, onCodeChange, socketRef]);
+    };
+
+    editor.on("change", handleChange);
+    editorRef.current = editor;
+
+    return () => {
+      editor.off("change", handleChange);
+      editor.toTextArea();
+      editorRef.current = null;
+    };
+  }, [roomId, socketRef]);
 
   useEffect(() => {
-    init();
-  }, [init]);
+    if (editorRef.current) {
+      editorRef.current.setOption("mode", { name: lang });
+    }
+  }, [lang]);
 
   useEffect(() => {
     if (editorRef.current) {
@@ -152,20 +178,22 @@ const Editor = ({ socketRef, roomId, onCodeChange }) => {
   }, [editorTheme]);
 
   useEffect(() => {
-    if (socketRef.current) {
-      socketRef.current.on(ACTIONS.CODE_CHANGE, ({ code }) => {
-        if (code !== null && editorRef.current) {
-          editorRef.current.setValue(code);
-        }
-      });
+    if (!socket) {
+      return undefined;
     }
 
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.off(ACTIONS.CODE_CHANGE);
+    const handleRemoteCodeChange = ({ code }) => {
+      if (code !== null && editorRef.current && code !== editorRef.current.getValue()) {
+        editorRef.current.setValue(code);
       }
     };
-  }, [socketRef.current]);
+
+    socket.on(ACTIONS.CODE_CHANGE, handleRemoteCodeChange);
+
+    return () => {
+      socket.off(ACTIONS.CODE_CHANGE, handleRemoteCodeChange);
+    };
+  }, [socket]);
 
   return <textarea id="realtimeEditor"></textarea>;
 };

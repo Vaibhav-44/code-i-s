@@ -134,6 +134,7 @@ const EditorPage = () => {
   const [isExecuting, setIsExecuting] = useState(false);
   const [stdin] = useState("");
   const [isTerminalCollapsed, setIsTerminalCollapsed] = useState(false);
+  const [socket, setSocket] = useState(null);
 
   const socketRef = useRef(null);
   const codeRef = useRef("");
@@ -180,11 +181,18 @@ const EditorPage = () => {
     }
   }, [lang, stdin]);
 
+  const handleCodeChange = useCallback((code) => {
+    codeRef.current = code;
+  }, []);
+
   useEffect(() => {
     const init = async () => {
-      socketRef.current = await initSocket();
-      socketRef.current.on("connect_error", (err) => handleErrors(err));
-      socketRef.current.on("connect_failed", (err) => handleErrors(err));
+      const createdSocket = await initSocket();
+      socketRef.current = createdSocket;
+      setSocket(createdSocket);
+
+      createdSocket.on("connect_error", (err) => handleErrors(err));
+      createdSocket.on("connect_failed", (err) => handleErrors(err));
 
       function handleErrors(e) {
         console.log("socket error", e);
@@ -192,13 +200,13 @@ const EditorPage = () => {
         reactNavigator("/");
       }
 
-      socketRef.current.emit(ACTIONS.JOIN, {
+      createdSocket.emit(ACTIONS.JOIN, {
         roomId,
         username: location.state?.username,
       });
 
       // Listening for joined event
-      socketRef.current.on(
+      createdSocket.on(
         ACTIONS.JOINED,
         ({ clients, username, socketId }) => {
           if (username !== location.state?.username) {
@@ -206,7 +214,7 @@ const EditorPage = () => {
             console.log(`${username} joined`);
           }
           setClients(clients);
-          socketRef.current.emit(ACTIONS.SYNC_CODE, {
+          createdSocket.emit(ACTIONS.SYNC_CODE, {
             code: codeRef.current,
             socketId,
           });
@@ -214,7 +222,7 @@ const EditorPage = () => {
       );
 
       // Listening for disconnected
-      socketRef.current.on(ACTIONS.DISCONNECTED, ({ socketId, username }) => {
+      createdSocket.on(ACTIONS.DISCONNECTED, ({ socketId, username }) => {
         toast.success(`${username} left the room.`);
         setClients((prev) => {
           return prev.filter((client) => client.socketId !== socketId);
@@ -227,6 +235,8 @@ const EditorPage = () => {
         socketRef.current.off(ACTIONS.JOINED);
         socketRef.current.off(ACTIONS.DISCONNECTED);
         socketRef.current.disconnect();
+        socketRef.current = null;
+        setSocket(null);
       }
     };
   }, []);
@@ -364,11 +374,10 @@ const EditorPage = () => {
 
         <div className="editorWrap">
           <Editor
+            socket={socket}
             socketRef={socketRef}
             roomId={roomId}
-            onCodeChange={(code) => {
-              codeRef.current = code;
-            }}
+            onCodeChange={handleCodeChange}
           />
         </div>
 
