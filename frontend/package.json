@@ -1,6 +1,7 @@
 {
     "name": "realtime-code-editor",
     "version": "0.1.0",
+    "description": "Frontend app for ParallelCode real-time collaborative coding sessions.",
     "private": true,
     "dependencies": {
         "@testing-library/jest-dom": "^5.16.4",
